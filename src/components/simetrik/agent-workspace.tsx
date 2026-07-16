@@ -582,11 +582,41 @@ export const AgentWorkspace = () => {
     );
   };
 
+  const pushQaExchange = (question: string, answer: string) => {
+    qaCounter.current += 1;
+    const id = `qa-${qaCounter.current}`;
+    setQaExchanges((prev) => [...prev, { id, question, answer: null }]);
+    setIsChatPanelCollapsed(false);
+    // Simula el tiempo de respuesta del agente antes de mostrar la explicación.
+    setTimeout(() => {
+      setQaExchanges((prev) => prev.map((qa) => (qa.id === id ? { ...qa, answer } : qa)));
+    }, 900);
+  };
+
   const handleSubmit = (message: PromptInputMessage) => {
     const typed = message.text.trim();
     const contextPrefix = pickedContext.map((p) => `[${p.label}: ${p.value}]`).join(" ");
     const text = [contextPrefix, typed].filter(Boolean).join(" ").trim();
     if (!text) return;
+
+    // Si el mensaje trae un dato seleccionado y es una pregunta, el agente explica
+    // cómo se calcula ese dato — no arranca el flujo de creación de un caso nuevo.
+    const isCalcQuestion = /c[oó]mo|calcul|por qu[eé]|de d[oó]nde|explic|qu[eé] es|\?/i.test(typed);
+    if (pickedContext.length > 0 && isCalcQuestion) {
+      const answer = pickedContext
+        .map((p) =>
+          getIndicatorExplanation(p.label, {
+            isNovaPay: boardIsNovaPay,
+            sourceNames: boardSourceNames,
+            threshold: lastTurn?.answers.threshold ?? "5% de diferencia",
+          }),
+        )
+        .join("\n\n");
+      pushQaExchange(text, answer);
+      setPrompt("");
+      setPickedContext([]);
+      return;
+    }
 
     const currentQuestion = lastTurn?.phase === "discovery" ? discoveryQuestions[lastTurn.questionIndex] : undefined;
 
@@ -659,19 +689,12 @@ export const AgentWorkspace = () => {
   const boardSourceNames = splitSources(lastTurn?.answers.sources ?? "Visa y Mastercard");
 
   const askIndicator = (indicator: string) => {
-    qaCounter.current += 1;
-    const id = `qa-${qaCounter.current}`;
     const answer = getIndicatorExplanation(indicator, {
       isNovaPay: boardIsNovaPay,
       sourceNames: boardSourceNames,
       threshold: lastTurn?.answers.threshold ?? "5% de diferencia",
     });
-    setQaExchanges((prev) => [...prev, { id, question: `¿Cómo se está calculando «${indicator}»?`, answer: null }]);
-    setIsChatPanelCollapsed(false);
-    // Simula el tiempo de respuesta del agente antes de mostrar la explicación.
-    setTimeout(() => {
-      setQaExchanges((prev) => prev.map((qa) => (qa.id === id ? { ...qa, answer } : qa)));
-    }, 900);
+    pushQaExchange(`¿Cómo se está calculando «${indicator}»?`, answer);
   };
 
   return (
