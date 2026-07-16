@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FlowCanvasPreview, flowNodes, typeStyles, type NodeOverride } from "@/components/simetrik/flow-canvas-preview";
-import { ResultsBoard } from "@/components/simetrik/results-board";
+import { ResultsBoard, getIndicatorExplanation } from "@/components/simetrik/results-board";
 import { NodeRecordsDialog } from "@/components/simetrik/node-records";
 import {
   PromptInput,
@@ -477,6 +477,8 @@ export const AgentWorkspace = () => {
   const [pickedContext, setPickedContext] = useState<{ id: string; label: string; value: string }[]>([]);
   const [canvasView, setCanvasView] = useState<"mapa" | "tablero">("mapa");
   const [recordsNodeId, setRecordsNodeId] = useState<string | null>(null);
+  const [qaExchanges, setQaExchanges] = useState<{ id: string; question: string; answer: string | null }[]>([]);
+  const qaCounter = useRef(0);
   const turnCounter = useRef(0);
   const pickCounter = useRef(0);
 
@@ -634,6 +636,7 @@ export const AgentWorkspace = () => {
     setTurns([]);
     setPrompt("");
     setCanvasView("mapa");
+    setQaExchanges([]);
   };
 
   const currentQuestion = lastTurn?.phase === "discovery" ? discoveryQuestions[lastTurn.questionIndex] : undefined;
@@ -654,6 +657,22 @@ export const AgentWorkspace = () => {
   const activeCanvasView = boardAvailable ? canvasView : "mapa";
   const boardIsNovaPay = lastTurn?.answers.sources === NOVAPAY_SOURCES;
   const boardSourceNames = splitSources(lastTurn?.answers.sources ?? "Visa y Mastercard");
+
+  const askIndicator = (indicator: string) => {
+    qaCounter.current += 1;
+    const id = `qa-${qaCounter.current}`;
+    const answer = getIndicatorExplanation(indicator, {
+      isNovaPay: boardIsNovaPay,
+      sourceNames: boardSourceNames,
+      threshold: lastTurn?.answers.threshold ?? "5% de diferencia",
+    });
+    setQaExchanges((prev) => [...prev, { id, question: `¿Cómo se está calculando «${indicator}»?`, answer: null }]);
+    setIsChatPanelCollapsed(false);
+    // Simula el tiempo de respuesta del agente antes de mostrar la explicación.
+    setTimeout(() => {
+      setQaExchanges((prev) => prev.map((qa) => (qa.id === id ? { ...qa, answer } : qa)));
+    }, 900);
+  };
 
   return (
     <div className="flex h-dvh">
@@ -1004,6 +1023,7 @@ export const AgentWorkspace = () => {
                     channel={lastTurn?.answers.channel ?? "Alarma dentro de Simetrik"}
                     isSelectionMode={isSelectionMode}
                     onPickData={pickData}
+                    onAskIndicator={askIndicator}
                   />
                 )}
                 {boardAvailable && (
@@ -1224,6 +1244,24 @@ export const AgentWorkspace = () => {
                         </Fragment>
                       );
                     })}
+
+                    {qaExchanges.map((qa) => (
+                      <Fragment key={qa.id}>
+                        <Message from="user">
+                          <MessageContent>{qa.question}</MessageContent>
+                        </Message>
+                        <Message from="assistant">
+                          <MessageContent>
+                            {qa.answer ?? (
+                              <span className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2Icon className="size-3.5 animate-spin" />
+                                Revisando cómo se calcula…
+                              </span>
+                            )}
+                          </MessageContent>
+                        </Message>
+                      </Fragment>
+                    ))}
                   </ConversationContent>
                 </Conversation>
 

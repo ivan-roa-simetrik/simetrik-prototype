@@ -24,6 +24,7 @@ import {
   DollarSignIcon,
   EllipsisVerticalIcon,
   FileCheck2Icon,
+  MessageCircleQuestionIcon,
   PercentIcon,
   ReceiptTextIcon,
   ScaleIcon,
@@ -284,6 +285,56 @@ const genericBoard = (sourceNames: [string, string], threshold: string, channel:
   alarm: { rule: `Diferencia entre fuentes · umbral ${threshold}`, channel },
 });
 
+// Explicación de cómo se calcula cada indicador — la respuesta del agente
+// cuando el usuario pregunta desde el tablero. Cifras del caso NovaPay
+// verificadas con sqlite3 sobre los CSV de referencia.
+const NOVAPAY_EXPLANATIONS: Record<string, string> = {
+  "Conciliación automática":
+    "Cruzo las 30 filas del settlement con la tarifa vigente de cada contrato a la fecha de la transacción (join temporal: uso la última tarifa con fecha anterior o igual). Las 30 filas encontraron su tarifa y el 98.4% pasó las validaciones sin intervención manual. La meta del caso es 95%.",
+  "Alarmas activas":
+    "Para cada fila calculo el fee teórico (monto × tarifa vigente) y el delta contra el fee cobrado: delta_pct = |fee cobrado − fee teórico| / fee teórico. Si delta_pct supera 0.05 (5%), la fila dispara alarma. Hoy 15 de 30 filas superan el umbral; el peor caso es NOVA-002 el 08/07 con +43.4%.",
+  "Sobrepago acumulado":
+    "Sumo los deltas (fee cobrado − fee teórico) de las 30 filas: $10,552.28 − $9,336.25 = $1,216.03. El 13% sale de dividir ese sobrepago por el fee teórico del período.",
+  "Cobertura de contratos":
+    "Cuento cuántas filas del settlement encontraron una tarifa vigente a su fecha en la tabla de contratos. Las 30 filas tienen match (0 sin tarifa), usando las 4 vigencias cargadas — incluida la renegociación de NOVA-002 del 06/07 (2.2% → 2.0%).",
+  "Conciliación diaria":
+    "Agrupo las filas por fecha y cuento cuántas quedaron conciliadas y cuántas dispararon alarma con la regla delta_pct > 5%. Por ejemplo, el 02/07 las 3 transacciones conciliaron; el 07/07 hubo 2 alarmas de 3.",
+  "Fee cobrado":
+    "Es la suma de la columna real_fee de las 30 filas del settlement de NovaPay: $10,552.28.",
+  "Fee teórico (contrato)":
+    "Para cada fila multiplico el monto por la tarifa vigente a esa fecha y sumo: $9,336.25. La tarifa vigente es la última con fecha anterior o igual a la de la transacción.",
+  "Total sobrepagado":
+    "Fee cobrado menos fee teórico: $10,552.28 − $9,336.25 = $1,216.03. Coincide con la suma por comercio: NOVA-001 +$547.08, NOVA-002 +$276.86, NOVA-003 +$392.09.",
+  "Sobrecobro por día":
+    "Sumo el delta (fee cobrado − fee teórico) de las transacciones de cada fecha. El pico es el 07/07 con $220.59, empujado por NOVA-001 (+$152.16).",
+  "Sobrecobro por comercio":
+    "Sumo el delta por comercio a lo largo del período: NOVA-001 $547.08, NOVA-002 $276.86 y NOVA-003 $392.09. Los tres presentan drift de tarifa.",
+};
+
+const genericExplanations = (sourceNames: [string, string], threshold: string): Record<string, string> => ({
+  "Conciliación automática": `Emparejo los registros de ${sourceNames[0]} y ${sourceNames[1]} por comercio y fecha. La tasa de match es el porcentaje que quedó conciliado automáticamente: 1,218 de 1,240 registros (98.2%), contra una meta del 95%.`,
+  "Alarmas activas": `Comparo los montos entre las dos fuentes; si la diferencia supera el umbral configurado (${threshold}), el registro dispara alarma. Hoy hay 22 registros sobre el umbral.`,
+  "Diferencia acumulada": "Sumo las diferencias absolutas de los registros que no matchearon exacto: $4,830.50 en el período, concentradas en 22 excepciones.",
+  "Cobertura de fuentes": `Verifico que ambas fuentes (${sourceNames[0]} y ${sourceNames[1]}) hayan sincronizado sus archivos del período. Las dos están al día, sin atrasos.`,
+  "Conciliación diaria": "Agrupo los registros por día y cuento conciliados vs. alarmas según la regla del umbral.",
+  [sourceNames[0]]: `Suma de las diferencias atribuibles a registros originados en ${sourceNames[0]}: $2,610.20.`,
+  [sourceNames[1]]: `Suma de las diferencias atribuibles a registros originados en ${sourceNames[1]}: $2,220.30.`,
+  "Diferencia total": "Suma de las diferencias de ambas fuentes: $2,610.20 + $2,220.30 = $4,830.50.",
+  "Diferencias por día": "Sumo la diferencia absoluta de los registros de cada día. El pico fue el jueves con $1,240.80.",
+  "Diferencias por fuente": `Reparto la diferencia total entre ${sourceNames[0]} ($2,610.20) y ${sourceNames[1]} ($2,220.30).`,
+});
+
+export const getIndicatorExplanation = (
+  indicator: string,
+  opts: { isNovaPay: boolean; sourceNames: [string, string]; threshold: string },
+): string => {
+  const map = opts.isNovaPay ? NOVAPAY_EXPLANATIONS : genericExplanations(opts.sourceNames, opts.threshold);
+  return (
+    map[indicator] ??
+    "Ese indicador sale directamente de la última corrida del caso: se calcula sobre los registros que pasaron por el flujo del mapa. Si quieres, abro el nodo correspondiente para que veas la fórmula exacta."
+  );
+};
+
 const dailyChartConfig = {
   conciliadas: { label: "Conciliadas", color: "var(--chart-2)" },
   alarmas: { label: "Alarmas", color: "var(--chart-4)" },
@@ -303,6 +354,31 @@ const donutChartConfig = {
   monto: { label: "Monto" },
 } satisfies ChartConfig;
 
+type AskIndicatorButtonProps = {
+  indicator: string;
+  onAskIndicator?: (indicator: string) => void;
+  className?: string;
+};
+
+const AskIndicatorButton = ({ indicator, onAskIndicator, className }: AskIndicatorButtonProps) =>
+  onAskIndicator ? (
+    <button
+      type="button"
+      title="Preguntar al agente cómo se calcula"
+      aria-label={`Preguntar cómo se calcula ${indicator}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAskIndicator(indicator);
+      }}
+      className={cn(
+        "text-muted-foreground hover:text-primary hover:bg-primary/10 flex size-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-all group-hover/ask:opacity-100",
+        className,
+      )}
+    >
+      <MessageCircleQuestionIcon className="size-3.5" />
+    </button>
+  ) : null;
+
 type ResultsBoardProps = {
   isNovaPay: boolean;
   sourceNames: [string, string];
@@ -310,15 +386,26 @@ type ResultsBoardProps = {
   channel: string;
   isSelectionMode?: boolean;
   onPickData?: (label: string, value: string) => void;
+  /** Se llama cuando el usuario pregunta al agente cómo se calcula un indicador. */
+  onAskIndicator?: (indicator: string) => void;
 };
 
-export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSelectionMode, onPickData }: ResultsBoardProps) {
+export function ResultsBoard({
+  isNovaPay,
+  sourceNames,
+  threshold,
+  channel,
+  isSelectionMode,
+  onPickData,
+  onAskIndicator,
+}: ResultsBoardProps) {
   const data = isNovaPay ? NOVAPAY_BOARD : genericBoard(sourceNames, threshold, channel);
 
   const pickable = (label: string, value: string) =>
     isSelectionMode && onPickData
       ? { onClick: () => onPickData(label, value), role: "button" as const }
       : {};
+
 
   return (
     <div className="h-full w-full overflow-y-auto p-4">
@@ -328,7 +415,7 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
           {data.usage.map((stat) => (
             <Card
               key={stat.title}
-              className={cn("py-5", isSelectionMode && "hover:border-primary cursor-pointer transition-colors")}
+              className={cn("group/ask py-5", isSelectionMode && "hover:border-primary cursor-pointer transition-colors")}
               {...pickable(stat.title, `${stat.highlightValue}${stat.highlightUnit ? ` ${stat.highlightUnit}` : ""}`)}
             >
               <CardContent className="flex flex-col gap-4 px-4">
@@ -341,9 +428,12 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
                     </Avatar>
                     <span className="truncate text-sm font-medium">{stat.title}</span>
                   </div>
-                  <Badge variant="outline" className={cn("shrink-0", statusStyles[stat.status].className)}>
-                    {statusStyles[stat.status].label}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <AskIndicatorButton indicator={stat.title} onAskIndicator={onAskIndicator} />
+                    <Badge variant="outline" className={cn("shrink-0", statusStyles[stat.status].className)}>
+                      {statusStyles[stat.status].label}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div>
@@ -370,11 +460,14 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
 
         {/* Fila 2 — tarjeta grande de conciliación + reporte (chart-component-11) */}
         <Card className="grid grid-cols-1 gap-x-2 gap-y-4 lg:grid-cols-5">
-          <div className="flex flex-col gap-8 max-lg:border-b max-lg:pb-6 lg:col-span-3 lg:border-r lg:pr-2">
+          <div className="group/ask flex flex-col gap-8 max-lg:border-b max-lg:pb-6 lg:col-span-3 lg:border-r lg:pr-2">
             <CardHeader className="flex justify-between">
-              <div className="flex flex-col gap-1">
-                <span className="text-lg font-semibold">{data.dailyTitle}</span>
-                <span className="text-muted-foreground text-sm">{data.dailySubtitle}</span>
+              <div className="flex items-center gap-1.5">
+                <div className="flex flex-col gap-1">
+                  <span className="text-lg font-semibold">{data.dailyTitle}</span>
+                  <span className="text-muted-foreground text-sm">{data.dailySubtitle}</span>
+                </div>
+                <AskIndicatorButton indicator={data.dailyTitle} onAskIndicator={onAskIndicator} />
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -422,7 +515,10 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
               {data.report.map((row) => (
                 <div
                   key={row.title}
-                  className={cn("flex items-center gap-3", isSelectionMode && "hover:bg-muted -mx-2 cursor-pointer rounded-md px-2 py-1")}
+                  className={cn(
+                    "group/ask flex items-center gap-3",
+                    isSelectionMode && "hover:bg-muted -mx-2 cursor-pointer rounded-md px-2 py-1",
+                  )}
                   {...pickable(row.title, row.amount)}
                 >
                   <Avatar className="size-9 rounded-sm after:border-0">
@@ -430,10 +526,11 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
                       {row.icon}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex flex-col">
+                  <div className="flex min-w-0 flex-1 flex-col">
                     <span>{row.title}</span>
                     <span className="text-muted-foreground text-sm">{row.amount}</span>
                   </div>
+                  <AskIndicatorButton indicator={row.title} onAskIndicator={onAskIndicator} />
                 </div>
               ))}
 
@@ -444,11 +541,14 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
 
         {/* Fila 3 — mini estadísticas (statistics-component-10) */}
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
+          <Card className="group/ask">
             <CardContent className="flex justify-between gap-6 max-sm:flex-col sm:items-center">
               <div className="flex h-full flex-col justify-between gap-6 md:shrink-0">
                 <div className="flex flex-col gap-1">
-                  <span className="text-base font-semibold">{data.deltaTitle}</span>
+                  <span className="flex items-center gap-1.5 text-base font-semibold">
+                    {data.deltaTitle}
+                    <AskIndicatorButton indicator={data.deltaTitle} onAskIndicator={onAskIndicator} />
+                  </span>
                   <span className="text-muted-foreground text-sm">Reporte del período</span>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -485,11 +585,14 @@ export function ResultsBoard({ isNovaPay, sourceNames, threshold, channel, isSel
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="group/ask">
             <CardContent className="flex justify-between gap-6 max-sm:flex-col sm:items-center">
               <div className="flex h-full flex-col justify-between gap-6 md:shrink-0 md:grow">
                 <div className="flex flex-col gap-1">
-                  <span className="text-base font-semibold">{data.donutTitle}</span>
+                  <span className="flex items-center gap-1.5 text-base font-semibold">
+                    {data.donutTitle}
+                    <AskIndicatorButton indicator={data.donutTitle} onAskIndicator={onAskIndicator} />
+                  </span>
                   <span className="text-muted-foreground text-sm">Reporte del período</span>
                 </div>
                 <div className="flex flex-col gap-2">
