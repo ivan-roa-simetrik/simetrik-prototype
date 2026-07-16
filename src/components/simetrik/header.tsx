@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -41,12 +42,12 @@ export const Header = ({ navigationData, className }: HeaderProps) => {
 
         <HeroNavigation01 navigationData={navigationData} />
 
-        <Button size="lg" className="max-lg:hidden" render={<a href="/prueba-gratis" />} nativeButton={false}>
+        <Button size="lg" className="max-lg:hidden" render={<Link href="/prueba-gratis" />} nativeButton={false}>
           Prueba gratis
         </Button>
 
         <div className="flex gap-4 lg:hidden">
-          <Button size="lg" render={<a href="/prueba-gratis" />} nativeButton={false}>
+          <Button size="lg" render={<Link href="/prueba-gratis" />} nativeButton={false}>
             Prueba gratis
           </Button>
           <HeroNavigation01SmallScreen navigationData={navigationData} triggerClassName="input-size-lg" />

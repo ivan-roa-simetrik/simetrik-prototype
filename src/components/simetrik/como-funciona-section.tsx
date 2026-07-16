@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowRightIcon, BellRingIcon, HistoryIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +65,7 @@ export const ComoFuncionaSection = () => {
             configuraciones frágiles.
           </p>
           <div>
-            <Button size="lg" render={<a href="/dashboard" />} nativeButton={false} className="group w-fit">
+            <Button size="lg" render={<Link href="/dashboard" />} nativeButton={false} className="group w-fit">
               Probar la demo en vivo
               <ArrowRightIcon className="transition-transform duration-300 group-hover:translate-x-1" />
             </Button>
