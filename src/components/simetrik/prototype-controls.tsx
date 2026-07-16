@@ -28,7 +28,7 @@ export const PrototypeControls = () => {
   };
 
   return (
-    <div className="bg-card/90 fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full border p-1.5 shadow-lg backdrop-blur">
+    <div className="bg-card/90 fixed bottom-4 left-4 z-50 flex items-center gap-1 rounded-full border p-1.5 shadow-lg backdrop-blur">
       <Button
         variant="ghost"
         size="icon-sm"
