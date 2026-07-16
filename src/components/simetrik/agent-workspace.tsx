@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FlowCanvasPreview, flowNodes, typeStyles, type NodeOverride } from "@/components/simetrik/flow-canvas-preview";
@@ -314,6 +315,11 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
       "repo-visa": {
         label: "Settlement — NovaPay",
         config: "type: source\nformat: csv\nfile: settlement_novapay.csv\ncolumns: merchant_id, date, amount, real_fee",
+        rules: [
+          "Lee el archivo de settlement de NovaPay (CSV).",
+          "Cada fila es una liquidación: comercio, fecha, monto y comisión cobrada.",
+          "Cubre 3 comercios entre el 01 y el 10 de julio.",
+        ],
         metrics: [
           { label: "Filas", value: "30" },
           { label: "Comercios", value: "3" },
@@ -325,6 +331,11 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
         label: "Contratos — NovaPay",
         config:
           "type: source\nformat: csv\nfile: contracts_novapay.csv\ncolumns: merchant_id, effective_date, contract_rate",
+        rules: [
+          "Lee la tabla de tarifas pactadas por contrato.",
+          "Cada fila dice desde qué fecha rige una tarifa para un comercio.",
+          "Incluye la renegociación de NOVA-002 del 06/07 (2.2% → 2.0%).",
+        ],
         metrics: [
           { label: "Vigencias", value: "4" },
           { label: "Renegociación", value: "NOVA-002 · 06/07" },
@@ -341,6 +352,11 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
           "    WHERE c.merchant_id = s.merchant_id AND c.effective_date <= s.date\n" +
           "    ORDER BY c.effective_date DESC LIMIT 1) AS contract_rate\n" +
           "FROM settlement s",
+        rules: [
+          "A cada liquidación le asigna la tarifa que estaba vigente ese día.",
+          "No exige fechas exactas: usa la última tarifa anterior o igual a la fecha de la liquidación.",
+          "Las 30 filas encontraron su tarifa; ninguna quedó sin match.",
+        ],
         metrics: [
           { label: "Filas unidas", value: "30" },
           { label: "Sin match", value: "0" },
@@ -357,6 +373,11 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
           "delta_pct = ROUND(ABS(delta) / theoretical_fee, 4)\n\n" +
           "-- if_else-threshold\n" +
           "CASE WHEN delta_pct > 0.05 THEN 'alarma' ELSE 'conciliado' END",
+        rules: [
+          "Calcula cuánto debió cobrarse según el contrato (monto × tarifa vigente).",
+          "Compara contra lo que realmente se cobró y saca la diferencia.",
+          "Si la diferencia supera el 5%, dispara alarma: 15 de 30 la dispararon.",
+        ],
         metrics: [
           { label: "Conciliado (OK)", value: "15 / 30" },
           { label: "Excepciones", value: "15 / 30" },
@@ -376,6 +397,11 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
           "  SUM(delta) AS total_delta\n" +
           "FROM v_flagged\n" +
           "GROUP BY merchant_id",
+        rules: [
+          "Agrupa los resultados por comercio.",
+          "Muestra cuántas transacciones tuvieron sobrecobro y cuánto suma cada una.",
+          "Total sobrepagado: $1,216.03 — listo para auditoría.",
+        ],
         metrics: [
           ...NOVAPAY_REPORT.map((r) => ({ label: r.merchant, value: r.delta })),
           { label: "Total sobrepagado", value: NOVAPAY_TOTAL_DELTA },
@@ -395,10 +421,43 @@ const getNodeOverridesForTurn = (turn: Turn): Record<string, NodeOverride> => {
     reporte: "type: report\naudience: auditor\nformat: pdf_audit_ready",
   };
 
+  const genericRules: Record<string, string[]> = {
+    "repo-visa": [
+      `Trae los registros de ${genericSource1}.`,
+      "Cada registro guarda su identificador, fecha y monto.",
+      "Se actualiza solo, con cada sincronización.",
+    ],
+    "repo-mc": [
+      `Trae los registros de ${genericSource2}.`,
+      "Cada registro guarda su identificador, fecha y monto.",
+      "Se actualiza solo, con cada sincronización.",
+    ],
+    union: [
+      `Junta los registros de ${genericSource1} y ${genericSource2} en una sola tabla.`,
+      "Empareja por comercio y fecha.",
+      "Si un registro está en una sola fuente, se conserva para revisarlo.",
+    ],
+    con: [
+      "Compara los montos entre las dos fuentes.",
+      `Si la diferencia supera el umbral (${genericThreshold}), marca el registro con alarma.`,
+      "El resto queda como conciliado.",
+    ],
+    reporte: [
+      "Resume el resultado de la conciliación.",
+      "Queda en formato listo para auditoría.",
+      "Se puede exportar y compartir con Finance.",
+    ],
+  };
+
   return Object.fromEntries(
     getBuildSteps(turn).map((step) => [
       step.id,
-      { label: step.label, config: genericConfig[step.id], metrics: [{ label: "Estado", value: step.result }] },
+      {
+        label: step.label,
+        config: genericConfig[step.id],
+        rules: genericRules[step.id],
+        metrics: [{ label: "Estado", value: step.result }],
+      },
     ]),
   );
 };
@@ -412,6 +471,7 @@ export const AgentWorkspace = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [configDraft, setConfigDraft] = useState<Record<string, string>>({});
   const [configText, setConfigText] = useState("");
+  const [configRules, setConfigRules] = useState<string[]>([]);
   const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [pickedContext, setPickedContext] = useState<{ id: string; label: string; value: string }[]>([]);
@@ -452,12 +512,14 @@ export const AgentWorkspace = () => {
     if (!next) {
       setConfigDraft({});
       setConfigText("");
+      setConfigRules([]);
       return;
     }
     const base = flowNodes.find((n) => n.id === next);
     const metrics = nodeOverrides?.[next]?.metrics ?? base?.metrics ?? [];
     setConfigDraft(Object.fromEntries(metrics.map((m) => [m.label, m.value])));
     setConfigText(nodeOverrides?.[next]?.config ?? base?.config ?? "");
+    setConfigRules(nodeOverrides?.[next]?.rules ?? base?.rules ?? []);
   };
 
   useEffect(() => {
@@ -827,7 +889,7 @@ export const AgentWorkspace = () => {
                 </div>
 
                 <div className="flex-1 space-y-6 overflow-y-auto p-4">
-                  {configText && (
+                  {(configText || configRules.length > 0) && (
                     <div className="space-y-1.5">
                       <Label
                         htmlFor="node-config-text"
@@ -846,12 +908,40 @@ export const AgentWorkspace = () => {
                       >
                         Configuración
                       </Label>
-                      <Textarea
-                        id="node-config-text"
-                        value={configText}
-                        onChange={(e) => setConfigText(e.target.value)}
-                        className="min-h-28 font-mono text-xs"
-                      />
+                      <Tabs defaultValue="sql">
+                        <TabsList className="w-full">
+                          <TabsTrigger value="sql" className="flex-1">
+                            SQL
+                          </TabsTrigger>
+                          <TabsTrigger value="reglas" className="flex-1">
+                            Reglas
+                          </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="sql">
+                          <Textarea
+                            id="node-config-text"
+                            value={configText}
+                            onChange={(e) => setConfigText(e.target.value)}
+                            className="min-h-32 font-mono text-xs"
+                          />
+                        </TabsContent>
+                        <TabsContent value="reglas">
+                          <ol className="space-y-2">
+                            {configRules.map((rule, i) => (
+                              <li key={i} className="flex items-start gap-2.5 rounded-md border p-2.5">
+                                <span className="bg-primary/10 text-primary flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                                  {i + 1}
+                                </span>
+                                <span className="text-sm leading-snug">{rule}</span>
+                              </li>
+                            ))}
+                          </ol>
+                          <p className="text-muted-foreground mt-2 text-xs">
+                            Esta es la interpretación del SQL en lenguaje simple. Si editas el SQL, el agente la
+                            actualiza al guardar.
+                          </p>
+                        </TabsContent>
+                      </Tabs>
                     </div>
                   )}
 

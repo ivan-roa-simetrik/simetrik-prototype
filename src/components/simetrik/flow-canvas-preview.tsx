@@ -38,6 +38,8 @@ export type FlowNode = {
   metrics: NodeMetric[];
   /** Configuración mockeada por defecto del nodo (SQL, regla, export) — visible en el panel de detalle. */
   config: string;
+  /** Interpretación de la configuración en lenguaje no técnico — pestaña "Reglas" del panel de detalle. */
+  rules: string[];
 };
 
 export const typeStyles: Record<NodeType, { badge: string; icon: string; subtitle: string }> = {
@@ -82,6 +84,11 @@ export const flowNodes: FlowNode[] = [
       "SELECT transaction_id, date, amount, fee\n" +
       "FROM raw.visa_ar_settlement\n" +
       "WHERE date >= CURRENT_DATE - INTERVAL '30 days'",
+    rules: [
+      "Trae las transacciones de Visa AR de los últimos 30 días.",
+      "De cada transacción guarda: identificador, fecha, monto y comisión.",
+      "Se actualiza solo, con cada sincronización de archivos.",
+    ],
   },
   {
     id: "repo-mc",
@@ -101,6 +108,11 @@ export const flowNodes: FlowNode[] = [
       "SELECT transaction_id, date, amount, fee\n" +
       "FROM raw.mastercard_ar_settlement\n" +
       "WHERE date >= CURRENT_DATE - INTERVAL '30 days'",
+    rules: [
+      "Trae las transacciones de Mastercard AR de los últimos 30 días.",
+      "De cada transacción guarda: identificador, fecha, monto y comisión.",
+      "Se actualiza solo, con cada sincronización de archivos.",
+    ],
   },
   {
     id: "union",
@@ -121,6 +133,11 @@ export const flowNodes: FlowNode[] = [
       "FROM visa_ar v\n" +
       "FULL OUTER JOIN mastercard_ar m\n" +
       "  ON v.transaction_id = m.transaction_id AND v.date = m.date",
+    rules: [
+      "Junta las transacciones de Visa y Mastercard en una sola tabla.",
+      "Empareja los registros que tienen el mismo identificador y la misma fecha.",
+      "Si un registro aparece en una sola fuente, se conserva igual para poder revisarlo.",
+    ],
   },
   {
     id: "con",
@@ -140,6 +157,11 @@ export const flowNodes: FlowNode[] = [
       "diferencia = ABS(amount_visa - amount_mc)\n\n" +
       "CASE WHEN diferencia > amount_visa * 0.05 THEN 'alarma'\n" +
       "     ELSE 'conciliado' END",
+    rules: [
+      "Compara el monto reportado por Visa contra el de Mastercard.",
+      "Si la diferencia supera el 5% del monto, marca la transacción con alarma.",
+      "El resto queda marcado como conciliado.",
+    ],
   },
   {
     id: "reporte",
@@ -161,6 +183,11 @@ export const flowNodes: FlowNode[] = [
       "  SUM(diferencia) AS diferencia_total\n" +
       "FROM conciliacion_ar\n" +
       "GROUP BY date ORDER BY date DESC",
+    rules: [
+      "Resume la conciliación día por día.",
+      "Cuenta cuántos registros hubo, cuántos quedaron conciliados y cuánto suma la diferencia.",
+      "Se exporta a Finance (SAP) todos los días a las 06:00.",
+    ],
   },
 ];
 
@@ -194,6 +221,8 @@ export type NodeOverride = {
   metrics?: NodeMetric[];
   /** La configuración real del nodo (SQL, regex, expresión condicional) — se muestra en el panel de configuración. */
   config?: string;
+  /** Interpretación de la configuración en lenguaje no técnico — pestaña "Reglas" del panel. */
+  rules?: string[];
 };
 
 type FlowCanvasPreviewProps = {
@@ -429,7 +458,13 @@ export const FlowCanvasPreview = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => onNodeSelect?.(id)}
+                      // El hover card se cierra en pointerdown y desmonta el botón antes del click,
+                      // así que la acción se dispara en pointerdown directamente.
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onNodeSelect?.(id);
+                      }}
                       title="Editar nodo"
                       aria-label={`Editar ${label}`}
                       className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors"
