@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FlowCanvasPreview, flowNodes, typeStyles, type NodeOverride } from "@/components/simetrik/flow-canvas-preview";
@@ -59,6 +67,7 @@ import {
   MousePointerClickIcon,
   MapIcon,
   LayoutDashboardIcon,
+  PencilIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +78,7 @@ type NavView = "agente" | "resumen" | "workspace";
 
 const primaryNavItems: { label: string; icon: typeof SparklesIcon; view: NavView }[] = [
   { label: "Agente Simetrik", icon: SparklesIcon, view: "agente" },
-  { label: "Resumen", icon: HomeIcon, view: "resumen" },
+  { label: "Casos de uso", icon: HomeIcon, view: "resumen" },
   { label: "dLocal Brasil", icon: UserIcon, view: "workspace" },
 ];
 
@@ -201,11 +210,32 @@ type Turn = {
   approved: boolean | undefined;
 };
 
+type Connector = { slug: string; label: string };
+
+// Logos servidos por cdn.simpleicons.org/<slug> (color de marca por defecto).
+// Nota: Oracle y Slack ya no están en simple-icons (takedown de marca), por eso
+// se usan otros conectores representativos del stack financiero.
+const NOVAPAY_CONNECTORS: Connector[] = [
+  { slug: "sap", label: "SAP" },
+  { slug: "snowflake", label: "Snowflake" },
+  { slug: "stripe", label: "Stripe" },
+  { slug: "googlesheets", label: "Google Sheets" },
+];
+
+const GENERIC_CONNECTORS: Connector[] = [
+  { slug: "visa", label: "Visa" },
+  { slug: "mastercard", label: "Mastercard" },
+  { slug: "sap", label: "SAP" },
+  { slug: "databricks", label: "Databricks" },
+];
+
 type Workspace = {
   id: string;
   name: string;
+  description: string;
   prompt: string;
   status: WorkspaceStatus;
+  connectors: Connector[];
 };
 
 const deriveWorkspaceName = (text: string) => (text.length > 42 ? `${text.slice(0, 42)}…` : text);
@@ -479,6 +509,9 @@ export const AgentWorkspace = () => {
   const [recordsNodeId, setRecordsNodeId] = useState<string | null>(null);
   const [qaExchanges, setQaExchanges] = useState<{ id: string; question: string; answer: string | null }[]>([]);
   const qaCounter = useRef(0);
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const turnCounter = useRef(0);
   const pickCounter = useRef(0);
 
@@ -646,7 +679,17 @@ export const AgentWorkspace = () => {
         approved: undefined,
       },
     ]);
-    setWorkspaces((prev) => [{ id, name: deriveWorkspaceName(text), prompt: text, status: "building" }, ...prev]);
+    setWorkspaces((prev) => [
+      {
+        id,
+        name: deriveWorkspaceName(text),
+        description: text,
+        prompt: text,
+        status: "building",
+        connectors: detected.sources === NOVAPAY_SOURCES ? NOVAPAY_CONNECTORS : GENERIC_CONNECTORS,
+      },
+      ...prev,
+    ]);
     setPrompt("");
     setPickedContext([]);
     setIsChatPanelCollapsed(false);
@@ -687,6 +730,24 @@ export const AgentWorkspace = () => {
   const activeCanvasView = boardAvailable ? canvasView : "mapa";
   const boardIsNovaPay = lastTurn?.answers.sources === NOVAPAY_SOURCES;
   const boardSourceNames = splitSources(lastTurn?.answers.sources ?? "Visa y Mastercard");
+
+  const openWorkspaceEdit = (workspace: Workspace) => {
+    setEditingWorkspaceId(workspace.id);
+    setEditName(workspace.name);
+    setEditDescription(workspace.description);
+  };
+
+  const saveWorkspaceEdit = () => {
+    if (!editingWorkspaceId) return;
+    setWorkspaces((prev) =>
+      prev.map((w) =>
+        w.id === editingWorkspaceId
+          ? { ...w, name: editName.trim() || w.name, description: editDescription.trim() || w.description }
+          : w,
+      ),
+    );
+    setEditingWorkspaceId(null);
+  };
 
   const askIndicator = (indicator: string) => {
     const answer = getIndicatorExplanation(indicator, {
@@ -795,48 +856,90 @@ export const AgentWorkspace = () => {
           <main className="flex-1 overflow-y-auto px-4 pb-16">
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 py-10">
               <div>
-                <h1 className="text-2xl font-semibold">Resumen</h1>
-                <p className="text-muted-foreground text-sm">Espacios de trabajo creados por el Agente Simetrik.</p>
+                <h1 className="text-2xl font-semibold">Casos de uso</h1>
+                <p className="text-muted-foreground text-sm">Casos creados por el Agente Simetrik.</p>
               </div>
 
               {workspaces.length === 0 ? (
                 <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">
-                  Todavía no creaste ningún flujo. Andá a &quot;Agente Simetrik&quot; y contale qué querés conciliar.
+                  Todavía no creaste ningún caso. Andá a &quot;Agente Simetrik&quot; y contale qué querés conciliar.
                 </p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {workspaces.map((workspace) => (
-                    <button
+                    <div
                       key={workspace.id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() =>
                         isSelectionMode
-                          ? pickData(workspace.name, `${workspaceStatusLabel[workspace.status]} · ${workspace.prompt}`)
+                          ? pickData(workspace.name, `${workspaceStatusLabel[workspace.status]} · ${workspace.description}`)
                           : setNavView("agente")
                       }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.currentTarget.click();
+                        }
+                      }}
                       className={cn(
-                        "hover:bg-muted/70 flex items-center justify-between gap-4 rounded-xl border p-4 text-left transition-colors",
+                        "hover:bg-muted/70 flex cursor-pointer items-start justify-between gap-4 rounded-xl border p-4 text-left transition-colors",
                         isSelectionMode && "hover:ring-primary/40 hover:ring-2",
                       )}
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1 space-y-2">
                         <p className="truncate text-sm font-semibold">{workspace.name}</p>
-                        <p className="text-muted-foreground truncate text-xs">{workspace.prompt}</p>
+                        <p className="text-muted-foreground line-clamp-2 text-xs">{workspace.description}</p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <div className="flex -space-x-1.5">
+                            {workspace.connectors.map((connector) => (
+                              <span
+                                key={connector.slug}
+                                title={connector.label}
+                                className="bg-card ring-border flex size-6 items-center justify-center rounded-full ring-1"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element -- logos de marcas servidos por CDN, tamaño fijo */}
+                                <img
+                                  src={`https://cdn.simpleicons.org/${connector.slug}`}
+                                  alt={connector.label}
+                                  className="size-3.5"
+                                />
+                              </span>
+                            ))}
+                          </div>
+                          <span className="text-muted-foreground text-[11px]">
+                            {workspace.connectors.length} conexiones
+                          </span>
+                        </div>
                       </div>
-                      <Badge
-                        variant={
-                          workspace.status === "active"
-                            ? "default"
-                            : workspace.status === "discarded"
-                              ? "outline"
-                              : "secondary"
-                        }
-                        className="shrink-0 gap-1"
-                      >
-                        {workspace.status === "building" && <Loader2Icon className="size-3 animate-spin" />}
-                        {workspaceStatusLabel[workspace.status]}
-                      </Badge>
-                    </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Badge
+                          variant={
+                            workspace.status === "active"
+                              ? "default"
+                              : workspace.status === "discarded"
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="shrink-0 gap-1"
+                        >
+                          {workspace.status === "building" && <Loader2Icon className="size-3 animate-spin" />}
+                          {workspaceStatusLabel[workspace.status]}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Editar ${workspace.name}`}
+                          title="Editar nombre y descripción"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openWorkspaceEdit(workspace);
+                          }}
+                        >
+                          <PencilIcon className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -1357,6 +1460,42 @@ export const AgentWorkspace = () => {
         sourceNames={boardSourceNames}
         threshold={lastTurn?.answers.threshold ?? "5% de diferencia"}
       />
+
+      <Dialog open={!!editingWorkspaceId} onOpenChange={(open) => !open && setEditingWorkspaceId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar caso de uso</DialogTitle>
+            <DialogDescription>Cambia el nombre y la descripción del caso.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="workspace-edit-name">Nombre</Label>
+              <Input
+                id="workspace-edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Nombre del caso"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="workspace-edit-description">Descripción</Label>
+              <Textarea
+                id="workspace-edit-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Qué concilia este caso"
+                className="min-h-24"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingWorkspaceId(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={saveWorkspaceEdit}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
