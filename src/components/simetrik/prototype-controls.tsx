@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { assetPath } from "@/lib/asset-path";
-import { SunIcon, MoonIcon, RotateCcwIcon } from "lucide-react";
+import { SunIcon, MoonIcon, RotateCcwIcon, FlaskConicalIcon } from "lucide-react";
 
 const THEME_STORAGE_KEY = "simetrik-theme";
 
@@ -37,6 +37,17 @@ export const PrototypeControls = () => {
         onClick={toggleTheme}
       >
         {isDark ? <SunIcon /> : <MoonIcon />}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Prueba: agente en Google Sheets"
+        title="Prueba: agente en Google Sheets"
+        onClick={() => {
+          window.location.href = assetPath("/sheets");
+        }}
+      >
+        <FlaskConicalIcon />
       </Button>
       <Button
         variant="ghost"

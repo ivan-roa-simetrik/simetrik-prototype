@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 // Los campos calculados (fee teórico, delta, delta %) se generaron con el SQL
 // de schema_and_queries.sql vía sqlite3; no editar a mano.
 // [merchant, fecha, monto, fee real, tarifa contrato, fee teórico, delta, delta %]
-const NOVAPAY_ROWS: [string, string, number, number, number, number, number, number][] = [
+export const NOVAPAY_ROWS: [string, string, number, number, number, number, number, number][] = [
   ["NOVA-001", "2026-07-01", 16230.83, 444.32, 0.022, 357.08, 87.24, 24.4],
   ["NOVA-001", "2026-07-02", 9571.37, 211.58, 0.022, 210.57, 1.01, 0.5],
   ["NOVA-001", "2026-07-03", 20274.87, 569.92, 0.022, 446.05, 123.87, 27.8],
