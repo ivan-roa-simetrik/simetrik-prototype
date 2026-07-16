@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FlowCanvasPreview, flowNodes, typeStyles, type NodeOverride } from "@/components/simetrik/flow-canvas-preview";
+import { ResultsBoard } from "@/components/simetrik/results-board";
 import {
   PromptInput,
   PromptInputHeader,
@@ -54,6 +55,8 @@ import {
   Loader2Icon,
   XIcon,
   MousePointerClickIcon,
+  MapIcon,
+  LayoutDashboardIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -411,6 +414,7 @@ export const AgentWorkspace = () => {
   const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [pickedContext, setPickedContext] = useState<{ id: string; label: string; value: string }[]>([]);
+  const [canvasView, setCanvasView] = useState<"mapa" | "tablero">("mapa");
   const turnCounter = useRef(0);
   const pickCounter = useRef(0);
 
@@ -550,6 +554,7 @@ export const AgentWorkspace = () => {
     setPrompt("");
     setPickedContext([]);
     setIsChatPanelCollapsed(false);
+    setCanvasView("mapa");
   };
 
   const respond = (turnId: string, accepted: boolean) => {
@@ -564,6 +569,7 @@ export const AgentWorkspace = () => {
   const reset = () => {
     setTurns([]);
     setPrompt("");
+    setCanvasView("mapa");
   };
 
   const currentQuestion = lastTurn?.phase === "discovery" ? discoveryQuestions[lastTurn.questionIndex] : undefined;
@@ -578,6 +584,12 @@ export const AgentWorkspace = () => {
   const autoCollapsed = navView === "agente" && turns.length > 0;
   const collapsed = sidebarOverride ?? autoCollapsed;
   const toggleSidebar = () => setSidebarOverride(!collapsed);
+
+  // El tablero (resultado) se habilita cuando el mapa (configuración) empezó a construirse
+  const boardAvailable = !!lastTurn && (lastTurn.phase === "building" || lastTurn.phase === "postconfirm");
+  const activeCanvasView = boardAvailable ? canvasView : "mapa";
+  const boardIsNovaPay = lastTurn?.answers.sources === NOVAPAY_SOURCES;
+  const boardSourceNames = splitSources(lastTurn?.answers.sources ?? "Visa y Mastercard");
 
   return (
     <div className="flex h-dvh">
@@ -882,14 +894,50 @@ export const AgentWorkspace = () => {
 
             <div className="flex-1 overflow-hidden p-4">
               <div className="bg-muted/40 relative h-full w-full overflow-hidden rounded-2xl border">
-                <FlowCanvasPreview
-                  revealCount={revealCount}
-                  selectedId={selectedNodeId}
-                  onNodeSelect={selectNode}
-                  nodeOverrides={nodeOverrides}
-                  isSelectionMode={isSelectionMode}
-                  onPickData={pickData}
-                />
+                {activeCanvasView === "mapa" ? (
+                  <FlowCanvasPreview
+                    revealCount={revealCount}
+                    selectedId={selectedNodeId}
+                    onNodeSelect={selectNode}
+                    nodeOverrides={nodeOverrides}
+                    isSelectionMode={isSelectionMode}
+                    onPickData={pickData}
+                  />
+                ) : (
+                  <ResultsBoard
+                    isNovaPay={boardIsNovaPay}
+                    sourceNames={boardSourceNames}
+                    threshold={lastTurn?.answers.threshold ?? "5% de diferencia"}
+                    channel={lastTurn?.answers.channel ?? "Alarma dentro de Simetrik"}
+                    isSelectionMode={isSelectionMode}
+                    onPickData={pickData}
+                  />
+                )}
+                {boardAvailable && (
+                  <div className="bg-card/90 absolute top-4 left-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 shadow-sm backdrop-blur">
+                    <Button
+                      variant={activeCanvasView === "mapa" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => setCanvasView("mapa")}
+                    >
+                      <MapIcon className="size-3.5" />
+                      Mapa
+                    </Button>
+                    <Button
+                      variant={activeCanvasView === "tablero" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setCanvasView("tablero");
+                        setSelectedNodeId(null);
+                      }}
+                    >
+                      <LayoutDashboardIcon className="size-3.5" />
+                      Tablero
+                    </Button>
+                  </div>
+                )}
                 {isSelectionMode && (
                   <div className="bg-primary text-primary-foreground pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1.5 text-xs font-medium shadow-md">
                     Modo selección — click en un dato para agregarlo. Esc para salir.
