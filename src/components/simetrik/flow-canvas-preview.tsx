@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, type PointerEvent, type WheelEvent } from "react";
-import { assetPath } from "@/lib/asset-path";
 import {
   ArchiveIcon,
   CombineIcon,
@@ -36,6 +35,8 @@ export type FlowNode = {
   x: number;
   y: number;
   metrics: NodeMetric[];
+  /** Configuración mockeada por defecto del nodo (SQL, regla, export) — visible en el panel de detalle. */
+  config: string;
 };
 
 export const typeStyles: Record<NodeType, { badge: string; icon: string; subtitle: string }> = {
@@ -75,6 +76,11 @@ export const flowNodes: FlowNode[] = [
       { label: "Tamaño", value: "2.1 GB" },
       { label: "Última sync", value: "hace 4 min" },
     ],
+    config:
+      "-- source-visa_ar\n" +
+      "SELECT transaction_id, date, amount, fee\n" +
+      "FROM raw.visa_ar_settlement\n" +
+      "WHERE date >= CURRENT_DATE - INTERVAL '30 days'",
   },
   {
     id: "repo-mc",
@@ -89,6 +95,11 @@ export const flowNodes: FlowNode[] = [
       { label: "Tamaño", value: "1.6 GB" },
       { label: "Última sync", value: "hace 6 min" },
     ],
+    config:
+      "-- source-mastercard_ar\n" +
+      "SELECT transaction_id, date, amount, fee\n" +
+      "FROM raw.mastercard_ar_settlement\n" +
+      "WHERE date >= CURRENT_DATE - INTERVAL '30 days'",
   },
   {
     id: "union",
@@ -103,6 +114,12 @@ export const flowNodes: FlowNode[] = [
       { label: "Tasa de match", value: "99.1%" },
       { label: "Última corrida", value: "hace 4 min" },
     ],
+    config:
+      "-- sql_transform-union_ar\n" +
+      "SELECT v.transaction_id, v.date, v.amount AS amount_visa, m.amount AS amount_mc\n" +
+      "FROM visa_ar v\n" +
+      "FULL OUTER JOIN mastercard_ar m\n" +
+      "  ON v.transaction_id = m.transaction_id AND v.date = m.date",
   },
   {
     id: "con",
@@ -117,6 +134,11 @@ export const flowNodes: FlowNode[] = [
       { label: "Excepciones", value: "502" },
       { label: "Monto conciliado", value: "$18.4M" },
     ],
+    config:
+      "-- if_else-conciliacion_ar\n" +
+      "diferencia = ABS(amount_visa - amount_mc)\n\n" +
+      "CASE WHEN diferencia > amount_visa * 0.05 THEN 'alarma'\n" +
+      "     ELSE 'conciliado' END",
   },
   {
     id: "reporte",
@@ -131,6 +153,13 @@ export const flowNodes: FlowNode[] = [
       { label: "Formato", value: "CSV" },
       { label: "Próximo envío", value: "mañana 06:00" },
     ],
+    config:
+      "-- report-cash_in\n" +
+      "SELECT date, COUNT(*) AS registros,\n" +
+      "  SUM(CASE WHEN estado='conciliado' THEN 1 ELSE 0 END) AS conciliados,\n" +
+      "  SUM(diferencia) AS diferencia_total\n" +
+      "FROM conciliacion_ar\n" +
+      "GROUP BY date ORDER BY date DESC",
   },
 ];
 
@@ -175,6 +204,8 @@ type FlowCanvasPreviewProps = {
   onNodeSelect?: (id: string) => void;
   /** Permite sobrescribir label/metrics de un nodo por id (ej. según lo que respondió el usuario). */
   nodeOverrides?: Record<string, NodeOverride>;
+  /** Se llama al hacer doble click en un nodo, para abrir la vista de tabla con sus registros. */
+  onNodeOpenRecords?: (id: string) => void;
   /** Modo selección activo: las métricas de cada nodo se pueden clickear para agregarlas como contexto del chat. */
   isSelectionMode?: boolean;
   /** Se llama al clickear una métrica en modo selección, con su label y valor. */
@@ -206,6 +237,7 @@ export const FlowCanvasPreview = ({
   selectedId,
   onNodeSelect,
   nodeOverrides,
+  onNodeOpenRecords,
   isSelectionMode,
   onPickData,
 }: FlowCanvasPreviewProps) => {
@@ -260,6 +292,11 @@ export const FlowCanvasPreview = ({
     }
 
     onNodeSelect?.(id);
+  };
+
+  const handleDoubleClick = (id: string) => () => {
+    if (isSelectionMode) return;
+    onNodeOpenRecords?.(id);
   };
 
   const handleCanvasPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -361,6 +398,7 @@ export const FlowCanvasPreview = ({
                     <button
                       type="button"
                       onClick={handleClick(id)}
+                      onDoubleClick={handleDoubleClick(id)}
                       onPointerDown={handlePointerDown(id)}
                       onPointerMove={handlePointerMove(id)}
                       className={cn(
@@ -422,14 +460,6 @@ export const FlowCanvasPreview = ({
             </div>
           );
         })}
-      </div>
-
-      <div className="absolute top-5 left-5">
-        <div className="bg-card/90 flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 shadow-sm backdrop-blur">
-          {/* eslint-disable-next-line @next/next/no-img-element -- ícono de marca con imagen embebida, no necesita optimización de next/image */}
-          <img src={assetPath("/agent-icon.svg")} alt="" className="size-4" />
-          <span className="text-muted-foreground text-[11px] font-medium">Armado por el Agente Simetrik</span>
-        </div>
       </div>
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2" onPointerDown={(e) => e.stopPropagation()}>

@@ -12,6 +12,7 @@ import { BorderBeam } from "@/components/ui/border-beam";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { FlowCanvasPreview, flowNodes, typeStyles, type NodeOverride } from "@/components/simetrik/flow-canvas-preview";
 import { ResultsBoard } from "@/components/simetrik/results-board";
+import { NodeRecordsDialog } from "@/components/simetrik/node-records";
 import {
   PromptInput,
   PromptInputHeader,
@@ -415,6 +416,7 @@ export const AgentWorkspace = () => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [pickedContext, setPickedContext] = useState<{ id: string; label: string; value: string }[]>([]);
   const [canvasView, setCanvasView] = useState<"mapa" | "tablero">("mapa");
+  const [recordsNodeId, setRecordsNodeId] = useState<string | null>(null);
   const turnCounter = useRef(0);
   const pickCounter = useRef(0);
 
@@ -455,7 +457,7 @@ export const AgentWorkspace = () => {
     const base = flowNodes.find((n) => n.id === next);
     const metrics = nodeOverrides?.[next]?.metrics ?? base?.metrics ?? [];
     setConfigDraft(Object.fromEntries(metrics.map((m) => [m.label, m.value])));
-    setConfigText(nodeOverrides?.[next]?.config ?? "");
+    setConfigText(nodeOverrides?.[next]?.config ?? base?.config ?? "");
   };
 
   useEffect(() => {
@@ -900,6 +902,7 @@ export const AgentWorkspace = () => {
                     selectedId={selectedNodeId}
                     onNodeSelect={selectNode}
                     nodeOverrides={nodeOverrides}
+                    onNodeOpenRecords={setRecordsNodeId}
                     isSelectionMode={isSelectionMode}
                     onPickData={pickData}
                   />
@@ -1194,6 +1197,15 @@ export const AgentWorkspace = () => {
           </div>
         )}
       </div>
+
+      <NodeRecordsDialog
+        nodeId={recordsNodeId}
+        nodeLabel={recordsNodeId ? (nodeOverrides?.[recordsNodeId]?.label ?? undefined) : undefined}
+        onClose={() => setRecordsNodeId(null)}
+        isNovaPay={boardIsNovaPay}
+        sourceNames={boardSourceNames}
+        threshold={lastTurn?.answers.threshold ?? "5% de diferencia"}
+      />
     </div>
   );
 };
