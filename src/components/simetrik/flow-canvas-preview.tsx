@@ -11,6 +11,7 @@ import {
   ZoomInIcon,
   ZoomOutIcon,
   RefreshCwIcon,
+  PencilIcon,
 } from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
@@ -288,10 +289,8 @@ export const FlowCanvasPreview = ({
       const metrics = override?.metrics ?? node?.metrics ?? [];
       const summary = metrics.map((m) => `${m.label}: ${m.value}`).join(", ");
       onPickData?.(label, summary);
-      return;
     }
-
-    onNodeSelect?.(id);
+    // El detalle se abre con el botón "Editar" del hover card; la tabla, con doble click.
   };
 
   const handleDoubleClick = (id: string) => () => {
@@ -424,10 +423,19 @@ export const FlowCanvasPreview = ({
                     <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", style.badge)}>
                       <Icon className={cn("size-4", style.icon)} />
                     </span>
-                    <div>
-                      <p className="text-sm font-semibold">{label}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{label}</p>
                       <p className="text-muted-foreground text-xs">{style.subtitle}</p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => onNodeSelect?.(id)}
+                      title="Editar nodo"
+                      aria-label={`Editar ${label}`}
+                      className="text-muted-foreground hover:text-foreground hover:bg-muted flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors"
+                    >
+                      <PencilIcon className="size-3.5" />
+                    </button>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3">
                     {metrics.map((metric) =>
